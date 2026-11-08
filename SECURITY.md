@@ -26,7 +26,7 @@ s2 = k^-1 * (h2 + r * d) mod n
 ```
 
 This is not a theoretical attack: it is how the Sony PS3 ECDSA private
-key was extracted in 2010 (CVE-2010-1807), how a reused nonce in early
+key was extracted in 2010, how a reused nonce in early
 Android `SecureRandom` leaked Bitcoin wallet keys in 2013, and how
 multiple production smart-contract deployments have been compromised
 since.
@@ -46,8 +46,8 @@ supply `k` via the `k_i` port. The CALLER is responsible for ensuring:
    practical key-recovery attacks (Genkin et al., "Sliding right into
    disaster", CHES 2017; Aldaya et al., "Port contention for fun and
    profit", S&P 2019).
-3. **Range**: `k` in `[1, n-1]`. The DUT enforces this with an early-out
-   `err_o = 1` when `k = 0` or `k >= n`. The caller must NOT silently
+3. **Range**: `k` in `[1, n-1]`. The DUT is designed to enforce this
+   with an early-out `err_o = 1` when `k = 0` or `k >= n` (unverified). The caller must NOT silently
    retry with the same `k` value; on `err_o`, derive a fresh `k` and
    re-sign.
 
@@ -55,25 +55,28 @@ Reference for safe nonce derivation: IETF RFC 6979, "Deterministic
 Usage of the Digital Signature Algorithm (DSA) and Elliptic Curve
 Digital Signature Algorithm (ECDSA)", T. Pornin, August 2013. The
 companion `gen_random_vectors.py` script implements RFC 6979 in Python
-and is used by the testbench to cross-validate the DUT.
+and generates test vectors for the testbench; results not independently confirmed.
 
-## What is protected
+## What is intended to be protected (not verified)
 
 ### 1. Signature mathematical correctness
 
-The DUT implements ANSI X9.62 / SEC 1 §4.1.3-4.1.4 ECDSA exactly:
+The DUT implements the ANSI X9.62 / SEC 1 §4.1.3-4.1.4 ECDSA algorithm
+(not validated):
 
 * **Sign**: `(R.x, R.y) = k * G; r = R.x mod n; s = k^-1 * (h + r*d) mod n`,
   followed by BIP-66 low-S canonicalisation (`s' = n - s` if `s > n/2`).
-  Output (r, s) is byte-for-byte identical to libsecp256k1 / coincurve
-  for the same (d, h, k) inputs (cross-validated against 30 random
-  vectors from `tb/random_vectors.h`).
+  Output (r, s) is intended to be byte-for-byte identical to
+  libsecp256k1 / coincurve for the same (d, h, k) inputs. 30 test
+  vectors derived from libsecp256k1 are included in
+  `tb/random_vectors.h`; results not independently confirmed.
 * **Verify**: full SEC 1 §4.1.4 procedure including range checks
-  `0 < r < n` and `0 < s < n`. The DUT REJECTS malformed signatures
-  (r=0, s=0, r>=n, s>=n) at the protocol level. Cross-validated against
-  90 random vectors (70 valid + 20 tampered).
-* **Key derive**: `Q = d * G` for any `d in [1, n-1]`. Cross-validated
-  against 60 random privkeys.
+  `0 < r < n` and `0 < s < n`. The DUT is designed to reject malformed
+  signatures (r=0, s=0, r>=n, s>=n) at the protocol level. 90 test
+  vectors derived from libsecp256k1 (70 valid + 20 tampered) are
+  included; results not independently confirmed.
+* **Key derive**: `Q = d * G` for any `d in [1, n-1]`. 60 test vectors
+  derived from libsecp256k1 are included; results not independently confirmed.
 
 ### 2. Bitcoin / BIP-66 canonical form
 
@@ -95,13 +98,14 @@ re-signing on retry if low-r is required.
 ### 3. Bounded session latency
 
 The internal FSMs (scalar mult, modular inversion, ECDSA sign / verify)
-are bounded by SVA assertions that fail the test gate if a counter ever
-runs past its expected range. The maximum per-session cycle count is
-~3200 cycles (verify with full affine sum); see `RESOURCE_ESTIMATES.md`.
+are intended to be bounded; SVA assertions are intended to fail the test
+if a session runs past its latency bound (not independently confirmed).
+The expected maximum per-session cycle count is ~3200 cycles (verify
+with full affine sum; unverified estimate); see `RESOURCE_ESTIMATES.md`.
 
 ## What is NOT covered (be honest)
 
-This list is deliberately exhaustive so purchasers can evaluate fit:
+This list is deliberately exhaustive so users can evaluate fit:
 
 - **Differential power analysis (DPA / CPA)** on the scalar-mult engine,
   the modular multiplier, or the inversion accumulator: working state
@@ -111,7 +115,7 @@ This list is deliberately exhaustive so purchasers can evaluate fit:
   randomised scalar splitting (Coron 1999), masked field arithmetic
   (e.g., affine coordinate randomisation per Itoh-Izu-Takenaka, CHES
   2002), and / or randomised projective coordinates per Hankerson-
-  Menezes-Vanstone §5.3. **None of these are shipped in the GPL tier.**
+  Menezes-Vanstone §5.3. **None of these is implemented.**
 - **Electromagnetic (EM) analysis** and **template attacks**: not
   specifically countered. There is no power balancing, no differential
   routing, no constant-Hamming-weight encoding.
@@ -119,15 +123,13 @@ This list is deliberately exhaustive so purchasers can evaluate fit:
   accumulator, or the FSM state register: a flipped bit in the bit
   loop can leak `d` (Biehl-Meyer-Müller, "Differential fault attacks
   on elliptic curve cryptosystems", CRYPTO 2000). No duplicated
-  counter / parity-protected register variant is shipped; that is on
-  the Premium roadmap.
+  counter / parity-protected register variant is implemented.
 - **Constant-time scalar multiplication**: the per-bit DBL+ADD pattern
   is structurally fixed but the conditional commit of the ADD result
   is gated on the scalar bit, which is a known-leaky pattern at the
   register-write level. A timing attacker measuring per-cycle current
-  can distinguish bit positions where ADD was committed vs not. The
-  Premium tier ships a Montgomery-ladder variant where every bit
-  produces an indistinguishable register update.
+  can distinguish bit positions where ADD was committed vs not. No
+  Montgomery-ladder variant is included in this repository.
 - **Cache / micro-architectural side channels**: not applicable (this
   is RTL, not software). However, if you place this core into a
   multi-tenant SoC with a shared bus, those channels can leak through
@@ -150,29 +152,30 @@ own.
 
 ## Compliance claims
 
-- **SEC 1 §4.1.3-4.1.4 conformance**: yes, for ECDSA over secp256k1
-  with arbitrary 256-bit message hashes. Cross-validated against
-  Python `coincurve` (which wraps the canonical libsecp256k1).
-- **BIP-66 canonical signature form**: yes, low-S enforced on the SIGN
-  side. The DER encoding step (BIP-66 strict-DER) is out of scope and
+- **SEC 1 §4.1.3-4.1.4 conformance**: not validated. The core
+  implements the SEC 1 ECDSA algorithm over secp256k1 with arbitrary
+  256-bit message hashes (not validated). Test vectors derived from
+  libsecp256k1 (via Python `coincurve`) are included; results not independently confirmed.
+- **BIP-66 canonical signature form**: not validated. Low-S
+  canonicalisation is intended to be applied on the SIGN side. The DER encoding step (BIP-66 strict-DER) is out of scope and
   must be applied by the caller before broadcasting on-chain.
 - **RFC 6979 deterministic nonce**: NOT implemented in hardware. The
   DUT is parameterised on a caller-supplied nonce. The companion
-  Python script `tb/gen_random_vectors.py` implements RFC 6979 and is
-  used by the testbench to cross-validate the DUT against
-  libsecp256k1's deterministic signatures. Production deployments
+  Python script `tb/gen_random_vectors.py` implements RFC 6979 and
+  generates test vectors derived from libsecp256k1's deterministic
+  signatures; results not independently confirmed. Production deployments
   should run the RFC 6979 derivation in either software or in a
   dedicated HMAC-SHA-256 IP (the sibling
   [sha256-fpga-core](https://github.com/ayoub-ac/sha256-fpga-core)
-  ships the HMAC primitive used by RFC 6979).
+  includes an HMAC-SHA-256 primitive; it is also unverified).
 - **NIST CAVP test certificate**: NOT obtained. CAVP validation
-  requires a NIST-accredited testing lab; informal validation is via
-  cross-check against `coincurve` (which is itself CAVP-equivalent
-  through libsecp256k1's published test corpus).
-- **FIPS 186-5 conformance**: secp256k1 is one of the curves listed
-  in FIPS 186-5 §6 (informational; secp256k1 is referenced under the
-  SEC 1 / "Koblitz curve" family). The signature algorithm itself
-  matches FIPS 186-5 §6.4 ECDSA. Achieving an actual FIPS-140-3
+  requires a NIST-accredited testing lab. Test vectors derived from
+  libsecp256k1 are included; results not independently confirmed. This is not a
+  substitute for CAVP validation.
+- **FIPS 186-5 conformance**: not validated. The core implements the
+  FIPS 186-5 §6.4 ECDSA algorithm over secp256k1 (not validated).
+  Whether secp256k1 is an approved curve for a given FIPS use is not
+  established here. Achieving an actual FIPS-140-3
   certificate requires a full module evaluation including
   side-channel and tamper response — not part of this product.
 - **Common Criteria**: not evaluated.
@@ -185,15 +188,16 @@ own.
 
 ## Test methodology used to validate the security claims
 
-The Verilator testbenches run:
+The Verilator testbenches contain the checks below. The checks are
+included; results not independently confirmed.
 
 1. **Functional correctness on directed vectors**: privkey = 1 -> Q = G,
    privkey = 2 -> 2G (SEC 1 §A.2.5 generator doubling chain). The
    testbench includes these as `dut_key_derive` smoke tests.
-2. **Cross-validation against `coincurve` (libsecp256k1)**: 60 random
-   key-derivation tests, 70 valid-signature verify tests, 30 random
-   sign tests with a caller-supplied RFC 6979 nonce. All must match
-   byte-for-byte.
+2. **Test vectors derived from libsecp256k1 (via `coincurve`)**: 60
+   random key-derivation tests, 70 valid-signature verify tests, 30
+   random sign tests with a caller-supplied RFC 6979 nonce. The harness
+   is written to require a byte-for-byte match.
 3. **Tampered-signature rejection**: 20 random verify tests with a
    bit flipped in `r` or `s`; the DUT must return `accept_o = 0`.
 4. **Malformed-signature rejection**: directed tests for `r = 0`,
@@ -203,7 +207,7 @@ The Verilator testbenches run:
    small nonce `k = 5` (must succeed; signature is mathematically valid
    but trivially key-recoverable in practice — the test only verifies
    the FSM does not deadlock for boundary `k`).
-6. **SVA-enforced protocol invariants on every cycle**: see
+6. **SVA protocol checks intended to run on every cycle**: see
    `tb/secp256k1_assertions.sv`. Properties include:
    - `valid_o` cannot pulse before any `start_i` has been seen.
    - The session finishes within a generous latency bound (8192 cycles)
@@ -217,11 +221,11 @@ The Verilator testbenches run:
    msg-high, nonce-small). Coverage report printed at end of
    `make test`.
 
-We do NOT run experimental DPA / CPA against a real bitstream. The
-constant-time claim is **design intent**, derived from the structure
-of the algorithm. If you need an experimentally-verified claim, that
-is a separate engagement that requires an FPGA, an oscilloscope, and a
-trace-collection campaign measured in days or weeks.
+We do NOT run experimental DPA / CPA against a real bitstream. Any
+side-channel property described here is **design intent** only; not
+evaluated. An experimentally verified claim would require an FPGA, an
+oscilloscope, and a trace-collection campaign measured in days or
+weeks; none has been done.
 
 ## How to use the core safely
 
@@ -248,6 +252,6 @@ trace-collection campaign measured in days or weeks.
 ## Reporting issues
 
 Found a bug, a side channel we missed, or a discrepancy with SEC 1 /
-RFC 6979 / libsecp256k1? Open an issue or contact the email in the
-README. Coordinated disclosure welcome. We do not currently offer a
+RFC 6979 / libsecp256k1? Open a GitHub issue; do not post confidential
+details in it. Coordinated disclosure welcome. We do not currently offer a
 bug bounty.

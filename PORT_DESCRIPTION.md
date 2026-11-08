@@ -48,15 +48,16 @@ Unused inputs are ignored and may be driven to any value.
 
 ## Latency
 
+Unverified estimates:
+
 | Mode       | Cycles (typical) | Notes                                       |
 |------------|------------------|---------------------------------------------|
 | KEY_DERIVE | ~1024            | One scalar multiplication + final inversion |
 | SIGN       | ~1600            | One scalar mult + one mod-n inverse + muls  |
 | VERIFY     | ~3200            | Two scalar mults + mod-n inverse + affine sum |
 
-Worst-case bounds are enforced by the SVA `p_ready_eventually` property
-at 8192 cycles; if a session ever runs past that, the testbench
-fails the gate.
+The SVA `p_ready_after_done` property is intended to flag any session
+that runs past 8192 cycles (not independently confirmed).
 
 ## Endianness
 
@@ -134,9 +135,9 @@ before invoking VERIFY:
    any on-curve point automatically satisfies this).
 
 A malformed public key will produce undefined behaviour (the verify
-result is mathematically meaningless; the FSM still terminates and
-outputs `accept_o = 0` in all observed cases, but no formal guarantee
-is offered).
+result is mathematically meaningless; the FSM is expected to terminate
+and output `accept_o = 0`, but this has not been confirmed and no
+formal guarantee is offered).
 
 ## Signal table
 

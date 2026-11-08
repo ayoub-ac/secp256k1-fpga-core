@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //
 // ECDSA verification on secp256k1 (ANSI X9.62 / SEC 1 §4.1.4 / FIPS 186-5).
 //

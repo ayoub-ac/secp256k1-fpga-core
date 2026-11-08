@@ -10,11 +10,10 @@ directly.
 **Wrapper only.** The field arithmetic, point arithmetic, scalar
 multiplication FSM, ECDSA sign / verify wrappers, and the streaming top
 all live in `rtl/*.sv` and are instantiated as a SystemVerilog
-black-box. Mixed-language elaboration is supported by every commercial
-simulator and synthesiser the core has been tested against.
+black-box, so the toolchain must support mixed-language elaboration.
+The wrapper has not been tested with any simulator or synthesiser.
 
-A pure VHDL re-implementation of the datapath is on the roadmap (Premium
-tier, scope: parity with `rtl/secp256k1_top.sv` including the same
+A pure VHDL re-implementation of the datapath is on the roadmap (scope: parity with `rtl/secp256k1_top.sv` including the same
 testbench checks). Until then, treat this directory as a binding layer,
 not as a second implementation.
 
@@ -101,8 +100,10 @@ end architecture;
 
 ## What this wrapper does NOT change
 
-* Latency, throughput, area: identical to `secp256k1_top.sv`. There is
-  no additional pipeline stage. Per-call latency depends on the mode:
+* Latency, throughput, area: intended to be identical to
+  `secp256k1_top.sv` (unverified). There is no additional pipeline
+  stage. Expected per-call latency depends on the mode (unverified
+  estimates):
   * key derive: ~1024 cycles (one scalar multiplication)
   * sign: ~1600 cycles (one scalar mult + one mod-n inverse + a handful
     of mod-n muls/adds)

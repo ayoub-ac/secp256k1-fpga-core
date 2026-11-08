@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //
 // Hard-coded directed test vectors for non-Verilator simulators (the
 // Verilator harness uses tb/sim_main.cpp + tb/random_vectors.h instead).

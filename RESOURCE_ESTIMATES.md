@@ -1,6 +1,8 @@
 # Resource estimates
 
-Numbers below are from Yosys 0.x generic synthesis (`make synth_report`).
+Numbers below are unverified estimates attributed to Yosys 0.x generic
+synthesis (`make synth_report`); they have not been independently
+reproduced.
 They are pre-place-and-route. See `SYNTH_REPORT.md` for the most recent
 run; this document explains what dominates the area and how to shrink
 it.
@@ -9,17 +11,19 @@ it.
 
 | Target                         | Comment |
 |--------------------------------|---------|
-| Lattice iCE40 UP5K             | Tight fit. The 256-bit modular multipliers (mod p and mod n) dominate the LUT count; iCE40 has no DSP and the schoolbook 256x256 multiply is mapped onto LUT4 adder trees. Production deployments target ECP5 or larger. |
-| Lattice ECP5 LFE5UM-25         | Comfortable fit. Yosys generic mapping does not auto-pack into block multipliers; nextpnr-ecp5 packs tighter; vendor (Diamond) tighter still and infers the 18x18 DSP blocks. |
-| Xilinx Artix-7 XC7A35T         | Comfortable fit. Yosys-generic synthesis here counts LUT6 + CARRY4. Vivado `synth_design` infers DSP48E1 blocks for the 256x256 multiply and the LUT count drops sharply (typically 2-3x reduction). |
+| Lattice iCE40 UP5K             | Fit not confirmed. The 256-bit modular multipliers (mod p and mod n) dominate the LUT count; iCE40 has no DSP and the schoolbook 256x256 multiply is mapped onto LUT4 adder trees. Production deployments target ECP5 or larger. |
+| Lattice ECP5 LFE5UM-25         | Fit not confirmed. Yosys generic mapping does not auto-pack into block multipliers; nextpnr-ecp5 packs tighter; vendor (Diamond) tighter still and infers the 18x18 DSP blocks. |
+| Xilinx Artix-7 XC7A35T         | Fit not confirmed (`SYNTH_REPORT.md` says it does not fit). Yosys-generic synthesis here counts LUT6 + CARRY4. Vivado `synth_design` infers DSP48E1 blocks for the 256x256 multiply and the LUT count is expected to drop sharply (2-3x reduction, unverified estimate). |
 | Cyclone V 5CSEMA5F31C6         | Quartus folds the 256x256 multiply into 27x18 DSP blocks; ALM count is much lower than the Yosys soft estimate. |
-| Xilinx UltraScale+ ZCU104      | Not characterised here. DSP58 mapping yields the lowest gate count; recommended for production signing accelerators. |
+| Xilinx UltraScale+ ZCU104      | Not characterised here. DSP58 mapping is expected to yield the lowest gate count. |
 
 For exact LUT/FF/BRAM numbers run `make synth_report` and read
-`SYNTH_REPORT.md`. The synthesis-comparison report is regenerated on
-every CI build.
+`SYNTH_REPORT.md`. There is no CI; the synthesis-comparison report is
+not regenerated automatically.
 
 ## What dominates the area
+
+All shares and counts in this section are unverified estimates.
 
 - **256-bit modular multiplier (mod p)**: implemented as a flat
   256x256 -> 512-bit schoolbook multiply followed by a two-step
@@ -38,9 +42,10 @@ every CI build.
   ~1500 FFs.
 - **FSM and control**: small (<5% of total area).
 
-secp256k1 is a LARGE design. iCE40 UP5K (5280 logic tiles) is right at
-the edge of fitting; production deployments target ECP5-25, Artix-7
-35T, Cyclone V SE, or any modern UltraScale+ / Versal device. Vendor
+secp256k1 is a LARGE design. Fit on iCE40 UP5K (5280 logic tiles) or
+any other device has not been confirmed; larger devices such as ECP5-25,
+Artix-7 35T, Cyclone V SE, or UltraScale+ / Versal parts were the
+intended targets. Vendor
 flows fold the 256x256 multiplier into hard DSP blocks and drop the
 gate count sharply; the Yosys-generic numbers are upper bounds.
 
@@ -49,45 +54,51 @@ gate count sharply; the Yosys-generic numbers are upper bounds.
 - **Schedule the 256x256 multiplier**: replace the flat schoolbook
   multiply with a 4x or 8x time-multiplexed variant that computes the
   partial products serially. Trade ~4-8x more cycles per multiply for
-  ~4-8x fewer LUTs. Available in the Premium tier.
+  ~4-8x fewer LUTs (unverified estimate). Not implemented in this
+  repository.
 - **DSP-friendly layout**: a `(* dsp = "yes" *)` attribute on the
   partial-product sums lets Vivado / Quartus infer DSP48 / 27x18
   blocks where the open flow's generic adder tree would have
-  remained. Available in the Premium tier (Vivado XDC + Quartus QSF
-  templates included).
+  remained. Not implemented; no Vivado XDC or Quartus QSF templates are
+  included.
 - **Karatsuba multiplication**: replace the 256x256 schoolbook with a
   3-level Karatsuba decomposition (256 -> 128 + 128, 128 -> 64 + 64,
   64 -> 32 + 32). Roughly 30% fewer multiplications at the cost of
-  more additions. Wins on FPGAs with limited DSP but ample LUTs.
-  Available in the Premium tier.
+  more additions (unverified estimate). Expected to help on FPGAs with
+  limited DSP but ample LUTs. Not implemented in this repository.
 - **Verify-only build**: drop `ecdsa_sign` and the SIGN-side mod-n
-  inversion plus the low-S logic. Available in the Premium tier (we
-  ship a `SECP256K1_VERIFY_ONLY` define for accelerators that only
-  validate signatures, e.g., consensus full-nodes).
+  inversion plus the low-S logic, for accelerators that only validate
+  signatures. Not implemented; there is no `SECP256K1_VERIFY_ONLY`
+  define in this repository.
 
 ## What you can do to push throughput
 
-- **Pipelined multiplier** (Premium): unroll the modular multiplier
+None of the items below is implemented; all figures are unverified estimates.
+
+- **Pipelined multiplier**: unroll the modular multiplier
   into a 4-stage pipeline. Steady-state throughput becomes 1 multiply
   per cycle instead of every cycle (combinational; the limit is now
   the surrounding FSM, which can be re-architected). Combined with a
   pipelined scalar-mult unit this lifts ECDSA throughput by ~3-5x.
-- **Two-engine top** (Premium): u1 * G and u2 * Q computed in parallel
+- **Two-engine top**: u1 * G and u2 * Q computed in parallel
   during VERIFY. Cuts the verify latency from ~3200 to ~1800 cycles
   at ~1.7x the area (one extra scalar-mult engine).
-- **Windowed scalar multiplication** (Premium): replace the bit-by-bit
+- **Windowed scalar multiplication**: replace the bit-by-bit
   double-and-add with a width-4 fixed-window method using a precomputed
   table of `{0*G, 1*G, 2*G, ..., 15*G}` (precomputed once at synthesis
   time for the `k * G` path). Lifts the per-scalar-mult cycle count
   from ~512 down to ~320. Not constant-time; pair with table lookup
   randomisation if side channels matter.
-- **Fixed-base scalar multiplication for `k * G`** (Premium): replace
+- **Fixed-base scalar multiplication for `k * G`**: replace
   the generic scalar-mult with a fixed-base "comb" method that uses
   a precomputed table of `{2^0 * G, 2^4 * G, 2^8 * G, ...}` and
   reduces the scalar-mult cycle count to ~64 cycles. The verify path
   still uses the variable-base scalar-mult for `u2 * Q`.
 
 ## Frequency
+
+The figures below are unverified estimates; no place-and-route timing has
+been confirmed.
 
 - iCE40 UP5K, default toolchain (Yosys + nextpnr), no constraints:
   limited by the 256-bit adder LUT depth (~20-30 MHz on generic synth).
@@ -96,21 +107,19 @@ gate count sharply; the Yosys-generic numbers are upper bounds.
   MHz with Vivado + DSP48 inference.
 - Cyclone V: similar to Artix-7 with M10K-backed BRAM and 27x18
   DSPs.
-- UltraScale+: 250-400 MHz with the pipelined Premium variant.
+- UltraScale+: 250-400 MHz with a pipelined variant (not implemented).
 
 The throughput is gated by the modular multiplier (1 multiply per
-cycle in this generic version, 1 multiply per pipeline stage in the
-Premium pipelined variant). For a 100 MHz Artix-7 deployment at the
-default cycle count, throughput is ~30K verifies/s and ~60K signs/s.
-The pipelined Premium variant lifts this to ~150K verifies/s and
-~300K signs/s, which is competitive with software signing on a modern
-ARM Cortex-A78.
+cycle in this generic version, 1 multiply per pipeline stage in a
+pipelined variant, which is not implemented). For a 100 MHz Artix-7
+deployment at the default cycle count, throughput would be ~30K
+verifies/s and ~60K signs/s (unverified estimates derived from the
+cycle count).
 
 ## Power
 
-Ballpark: 60-120 mW dynamic on Artix-7 35T at 100 MHz, depending on
-data activity. The 256-bit register banks are the largest dynamic
-contributor; the multipliers toggle on every state transition during
+Power has not been characterized. The 256-bit register banks are
+expected to be the largest dynamic contributor; the multipliers toggle on every state transition during
 the bit loop.
 
 ## How to reproduce

@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0-or-later OR Commercial
+// SPDX-License-Identifier: GPL-3.0-or-later OR LicenseRef-Commercial
 //
 // Scalar multiplication R = k * P on secp256k1 using a left-to-right
 // double-and-add over Jacobian coordinates. The base point P is taken

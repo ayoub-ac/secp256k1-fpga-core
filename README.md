@@ -1,23 +1,23 @@
 # secp256k1-fpga-core
 
 [![License: GPL-3.0-or-later or commercial](https://img.shields.io/badge/license-GPL--3.0%20%7C%20commercial-blue.svg)](LICENSE.md)
-[![Tests](https://img.shields.io/badge/tests-passing-brightgreen.svg)](#verification)
-[![libsecp256k1 cross-validated](https://img.shields.io/badge/libsecp256k1-cross--validated-blue.svg)](#verification)
-[![Lint](https://img.shields.io/badge/Verilator%20lint-clean-brightgreen.svg)](#build--test)
 
-A small, synthesisable secp256k1 ECDSA IP core in SystemVerilog.
-Implements ANSI X9.62 / SEC 1 §4.1.3-4.1.4 sign and verify, plus
-public-key derivation `Q = d*G`, with BIP-66 low-S canonicalisation on
-the signing side. Targets iCE40, ECP5, Xilinx 7-series and UltraScale+,
-Cyclone V, and Tang Nano (the latter at the edge of fitting).
+> **Status: experimental and unverified.** This core was written with AI assistance and has not been independently verified in simulation regressions, formal proofs or hardware. Claims in this repository about standards compliance, test results, timing and resource use are unverified. It has not been validated under NIST CAVP/CMVP and has not been evaluated for side-channel or fault-injection resistance. Do not use it in production or security-sensitive designs without your own verification. No support or maintenance is provided.
 
-The core is verified end-to-end against the SEC 1 §A.2.5 generator
-doubling chain (privkey 1 -> G, privkey 2 -> 2G), 60 random
-key-derivation pairs, 70 valid + 20 tampered ECDSA signatures, and 30
-random sign tests with caller-supplied RFC 6979 nonces — all
-cross-validated against Python `coincurve` (which wraps the canonical
+A synthesisable secp256k1 ECDSA IP core in SystemVerilog.
+Implements the ANSI X9.62 / SEC 1 §4.1.3-4.1.4 sign and verify
+algorithms (not validated), plus public-key derivation `Q = d*G`, with
+BIP-66 low-S canonicalisation on the signing side. Intended targets:
+iCE40, ECP5, Xilinx 7-series and UltraScale+, Cyclone V, and Tang Nano;
+fit and timing have not been confirmed on any target.
+
+Test vectors derived from libsecp256k1 are included; results not independently confirmed.
+They cover the SEC 1 §A.2.5 generator doubling chain (privkey 1 -> G,
+privkey 2 -> 2G), 60 random key-derivation pairs, 70 valid + 20 tampered
+ECDSA signatures, and 30 random sign tests with caller-supplied RFC 6979
+nonces, generated with Python `coincurve` (which wraps
 [bitcoin-core/libsecp256k1](https://github.com/bitcoin-core/secp256k1)).
-No FPGA hardware is required for the test suite.
+No FPGA hardware is required to run the test suite.
 
 ## What secp256k1 is for
 
@@ -53,9 +53,9 @@ TLS deployments. The two are NOT interoperable:
 | Patents             | Free (post-2008)              | Free                             |
 | Used by             | Bitcoin, Ethereum, all major blockchains | Solana, Cardano, SSH      |
 
-Use this core for blockchain signing. Use the sibling
-[ed25519-fpga-core](https://github.com/ayoub-ac/ed25519-fpga-core)
-project for Ed25519 / EdDSA.
+Use this core for blockchain signing. Use a dedicated Ed25519 core for
+Ed25519 / EdDSA (no sibling `ed25519-fpga-core` repository is currently
+published).
 
 ## Bitcoin compatibility note
 
@@ -74,10 +74,10 @@ For on-chain Bitcoin transaction signing, the (r, s) pair must be:
 For Ethereum (EIP-155 / EIP-2 / EIP-2098), use the (r, s, v) triple
 with the `v` recovery byte computed by inspecting `R.y mod 2`. The DUT
 emits `(r, s)` only; the recovery byte must be derived externally from
-the scalar-mult intermediate `R.y`. A future variant on the Premium
-roadmap exposes `R.y` directly to support `v` derivation in hardware.
+the scalar-mult intermediate `R.y`. Exposing `R.y` directly to support
+`v` derivation in hardware is not implemented.
 
-## Used in (alphabetical, real deployments)
+## Where secp256k1 is used (deployments of the curve, not of this core)
 
 | Product / standard                    | Use                            |
 |---------------------------------------|--------------------------------|
@@ -164,8 +164,9 @@ Detailed handshake timing in [`PORT_DESCRIPTION.md`](PORT_DESCRIPTION.md).
 
 ## Headline numbers
 
-Real numbers from `make synth_report` (Yosys 0.x, top with all
-sub-modules):
+Unverified estimates attributed to `make synth_report` (Yosys 0.x, top
+with all sub-modules). They have not been independently reproduced, and
+the FF and DSP figures below do not match `SYNTH_REPORT.md`:
 
 | Target           | LUT       | FF    | DSP / BRAM | Latency (per session)  | Notes                  |
 |------------------|-----------|-------|------------|------------------------|------------------------|
@@ -174,8 +175,8 @@ sub-modules):
 | Xilinx Artix-7   | see `SYNTH_REPORT.md` | ~3500 | 0 / 0      | same                   | Vivado infers DSP48E1; LUT count drops ~50% |
 
 The 256-bit modular multipliers (one mod p, one mod n) dominate area
-cost. The scalar-mult engine FSM and per-bit point ops contribute
-~10-15%. Vendor flows (Vivado / Quartus) fold the partial-product trees
+cost. The scalar-mult engine FSM and per-bit point ops are estimated
+to contribute ~10-15% (unverified estimate). Vendor flows (Vivado / Quartus) fold the partial-product trees
 into DSP blocks and the gate count drops sharply; `synth_xilinx` shown
 here uses the open generic mapping. See
 [`RESOURCE_ESTIMATES.md`](RESOURCE_ESTIMATES.md) for the full breakdown
@@ -193,11 +194,13 @@ make test            # build and run test suite
                      #  + 30 sign + edge cases + malformed reject)
 ```
 
-A passing run ends with `+PASS all tests passed` and exits 0.
+The harness is written to end a passing run with `+PASS all tests passed` and
+exit 0. No passing run has been independently confirmed.
 
 ## Verification
 
-Three orthogonal techniques are wired into the testbench.
+Three techniques are wired into the testbench. Test vectors are included;
+results not independently confirmed.
 
 ### Directed tests
 
@@ -205,17 +208,17 @@ Three orthogonal techniques are wired into the testbench.
 |---|--------------------------------------------|------------------------------------------------------|
 | 1 | SEC 1 §A.2.5 privkey 1 -> Q = G            | Generator point sanity                               |
 | 2 | SEC 1 §A.2.5 privkey 2 -> Q = 2G           | First doubling on the curve                          |
-| 3 | 60 cross-validated random `Q = d*G`        | `coincurve.PrivateKey().public_key`                  |
+| 3 | 60 random `Q = d*G` vectors from coincurve | `coincurve.PrivateKey().public_key`                  |
 | 4 | 70 random ECDSA verify ACCEPT cases        | `coincurve.PublicKey().verify()`                     |
-| 5 | 20 tampered (bit-flipped r/s) REJECT cases | Signature unforgeability under bit-flip              |
-| 6 | 30 deterministic-nonce sign cases          | RFC 6979 nonce, output matches `coincurve.sign()`    |
+| 5 | 20 tampered (bit-flipped r/s) REJECT cases | Rejection of bit-flipped signatures                  |
+| 6 | 30 deterministic-nonce sign cases          | RFC 6979 nonce, expected `coincurve.sign()` output   |
 | 7 | k = 0 / r = 0 / s = 0 / r >= n cases       | Range-check rejection logic                          |
 | 8 | small-k sign smoke test (k = 5)            | FSM does not deadlock on boundary nonce              |
 
 ### SystemVerilog assertions
 
-`tb/secp256k1_assertions.sv` enforces protocol invariants on every cycle
-of every test:
+`tb/secp256k1_assertions.sv` is intended to check protocol invariants on
+every cycle of every test:
 
 - `valid_o` cannot pulse before any `start_i` has been seen.
 - `ready_o` re-asserts within `LAT_MAX = 8192` cycles (catches a stuck
@@ -225,13 +228,13 @@ of every test:
 - `valid_o` is at most one cycle high per session.
 - `start_i` cannot be raised while `ready_o` is low.
 
-The assertions compile with both Verilator 5.x (`--assert`) and Vivado
-xsim. They are stripped on synthesis flows via `` `ifndef SYNTHESIS ``.
+The assertions are intended to compile with both Verilator 5.x
+(`--assert`) and Vivado xsim (not independently confirmed). They are stripped on synthesis flows via `` `ifndef SYNTHESIS ``.
 
 ### Functional coverage
 
 `tb/secp256k1_cov.sv` collects 10 bins. The simulator prints a coverage
-summary at end-of-test:
+summary at end-of-test in this format (illustrative output; results not independently confirmed):
 
 ```
 ---- Functional coverage ----
@@ -242,7 +245,7 @@ summary at end-of-test:
 Coverage: 10/10 bins (100.0%)
 ```
 
-A regression that drops below 8/10 fails the gate.
+The harness is intended to fail a run that drops below 8/10.
 
 ### Synthesis comparison report
 
@@ -254,15 +257,15 @@ with a notice when not on `$PATH`.
 
 ## Variants
 
-| Variant                                | Use case                                                                       | Tier   |
-|----------------------------------------|--------------------------------------------------------------------------------|--------|
-| `rtl/secp256k1_top.sv`                 | Default: key derive + sign + verify, single shared scalar-mult engine          | GPL    |
-| `rtl/scalar_mult.sv`                   | k * P scalar multiplication only (no ECDSA wrappers)                            | GPL    |
-| `rtl/field_secp256k1.sv`               | GF(p) modular arithmetic only                                                   | GPL    |
-| `rtl/scalar_field.sv`                  | Mod-n scalar arithmetic only                                                    | GPL    |
-| `vhdl_wrapper/secp256k1_top_vhdl.vhd`  | VHDL-2008 entity wrapping the SV core for VHDL-only designs                     | All    |
+| Variant                                | Use case                                                                       |
+|----------------------------------------|--------------------------------------------------------------------------------|
+| `rtl/secp256k1_top.sv`                 | Default: key derive + sign + verify, single shared scalar-mult engine          |
+| `rtl/scalar_mult.sv`                   | k * P scalar multiplication only (no ECDSA wrappers)                            |
+| `rtl/field_secp256k1.sv`               | GF(p) modular arithmetic only                                                   |
+| `rtl/scalar_field.sv`                  | Mod-n scalar arithmetic only                                                    |
+| `vhdl_wrapper/secp256k1_top_vhdl.vhd`  | VHDL-2008 entity wrapping the SV core for VHDL-only designs                     |
 
-Premium tier (on roadmap, not yet shipped):
+Possible future work (not implemented; figures are unverified estimates):
 * RFC 6979 deterministic nonce derivation in hardware (HMAC-SHA-256
   loop). Eliminates the caller-side nonce-management burden.
 * Pipelined modular multiplier (4-stage; ~3-5x throughput).
@@ -282,8 +285,8 @@ Dual-licensed:
 - **GPL-3.0-or-later** for open-source projects. If your product links
   this RTL or its compiled bitstream, your project must also be
   GPL-3.0+.
-- **Commercial license** for closed-source products. See
-  [`LICENSE.md`](LICENSE.md) for the legal text and an FAQ.
+- **Commercial license** for closed-source products. Commercial licenses are available on request: open a GitHub issue titled 'Commercial license request'. Do not post confidential details in the issue. Any commercial license is provided as is, without warranty, support or maintenance. This core is unverified (see README).
+  See [`LICENSE.md`](LICENSE.md) for the license text.
 
 If unsure which applies, read `LICENSE.md` or open an issue.
 
@@ -304,7 +307,7 @@ tb/                        testbench
   secp256k1_assertions.sv    SVA properties
   secp256k1_cov.sv           functional coverage collector
   bitcoin_vectors.sv         RFC 6979 / SEC 1 vectors (for non-Verilator simulators)
-  random_vectors.h           generated cross-validation vectors
+  random_vectors.h           generated test vectors (coincurve)
   gen_random_vectors.py      regenerator (uses `coincurve` lib)
 vhdl_wrapper/              VHDL-2008 wrapper for mixed-language designs
 scripts/                   helper scripts (synth_report.sh, vhdl_cosim.sh)
@@ -318,13 +321,14 @@ Bug reports and patches welcome. Process:
 1. File an issue first for non-trivial changes.
 2. Fork, branch, and run `make lint test` locally.
 3. Open a pull request with a description of what changed and why.
-4. CI runs the full test suite plus `synth_report`; both must be green.
+4. There is no CI; include the output of your local `make lint test` run in
+   the pull request.
 
 ## Citation
 
 ```bibtex
 @misc{secp256k1-fpga-core,
-  title  = {{secp256k1-fpga-core}: a small dual-licensed secp256k1 ECDSA IP core in SystemVerilog},
+  title  = {{secp256k1-fpga-core}: a dual-licensed secp256k1 ECDSA IP core in SystemVerilog},
   author = {Achour, Ayoub},
   year   = {2026},
   howpublished = {\url{https://github.com/ayoub-ac/secp256k1-fpga-core}}
